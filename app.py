@@ -1,73 +1,85 @@
 import streamlit as st
-import requests
-import tempfile
-
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from dotenv import load_dotenv
+import tempfile
+import os
 
-# ---------- UI CONFIG ----------
-st.set_page_config(page_title="Gemini-Powered RAG", layout="centered")
-st.title("🔍 Gemini-Powered RAG from Web URLs")
+# Load env vars
+load_dotenv()
 
-with st.form("input_form"):
-    gemini_key = st.text_input("🔐 Your Gemini API Key", type="password")
-    urls_input = st.text_area("🌐 URLs to search from (one per line)")
-    user_question = st.text_input("❓ Your Question")
-    submitted = st.form_submit_button("Run RAG")
+st.set_page_config(page_title="RAG Chatbot with Gemini", layout="wide")
+st.title("🧠 RAG Chatbot with Web URLs + Gemini")
 
-# ---------- ON SUBMIT ----------
-if submitted:
-    if not gemini_key or not urls_input or not user_question:
-        st.error("❗ Please fill all fields above.")
-    else:
-        with st.spinner("📡 Loading content from web..."):
-            urls = urls_input.strip().splitlines()
-            docs = []
-            for url in urls:
-                try:
-                    docs.extend(WebBaseLoader(url).load())
-                except Exception as e:
-                    st.warning(f"⚠️ Failed to load {url}: {e}")
-            if not docs:
-                st.error("❌ No documents loaded.")
-                st.stop()
+# Gemini API key
+gemini_key = st.text_input("🔑 Enter Gemini API Key", type="password")
+os.environ["GOOGLE_API_KEY"] = gemini_key.strip()
 
-        with st.spinner("✂️ Chunking & embedding text..."):
-            splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-            chunks = splitter.split_documents(docs)
-            embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# Web URLs input
+urls_input = st.text_area("🌐 Enter Web URLs (comma-separated)")
+load_docs_btn = st.button("🔍 Load Documents and Initialize Chat")
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                vectorstore = FAISS.from_documents(chunks, embeddings)
-                vectorstore.save_local(tmpdir)
+# Session state for vectorstore and chat history
+if "vectorstore" not in st.session_state:
+    st.session_state.vectorstore = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-                # ✅ Fix for Streamlit Cloud deserialization
-                vectorstore = FAISS.load_local(
-                    tmpdir,
-                    embeddings,
-                    allow_dangerous_deserialization=True
-                )
-                retriever = vectorstore.as_retriever()
-                docs = retriever.get_relevant_documents(user_question)
-                context = "\n\n".join(doc.page_content for doc in docs[:2])
+# Function: Load and embed documents
+def load_and_embed(urls):
+    loader = WebBaseLoader(urls)
+    docs = loader.load()
+    
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    chunks = splitter.split_documents(docs)
 
-        with st.spinner("🤖 Asking Gemini 2.0 Flash..."):
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
-            prompt = f"Answer the question based on the context below:\n\nContext:\n{context}\n\nQuestion:\n{user_question}"
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            headers = {"Content-Type": "application/json"}
-            res = requests.post(url, headers=headers, json=payload)
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vectorstore = FAISS.from_documents(chunks, embeddings)
+        vectorstore.save_local(tmpdir)
+        vectorstore = FAISS.load_local(tmpdir, embeddings, allow_dangerous_deserialization=True)
+        return vectorstore
 
-            try:
-                answer = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-            except Exception:
-                answer = res.text or "❌ Gemini returned an error."
+# Load documents
+if load_docs_btn and urls_input:
+    urls = [url.strip() for url in urls_input.split(",") if url.strip()]
+    with st.spinner("Processing documents..."):
+        st.session_state.vectorstore = load_and_embed(urls)
+    st.success("✅ Documents loaded and embedded. Start chatting below!")
 
-        # ---------- OUTPUT ----------
-        st.markdown("### ✅ Gemini Answer")
-        st.success(answer)
+# Chatbot interface
+if st.session_state.vectorstore:
+    user_question = st.text_input("💬 Ask a question")
 
-        with st.expander("📄 Retrieved Context"):
-            st.code(context[:3000], language="text")
+    if user_question:
+        retriever = st.session_state.vectorstore.as_retriever()
+        docs = retriever.get_relevant_documents(user_question)
+        context = "\n\n".join(doc.page_content for doc in docs[:3])
+
+        # Append previous Q&A to context
+        full_context = ""
+        for qa in st.session_state.chat_history:
+            full_context += f"Q: {qa['question']}\nA: {qa['answer']}\n\n"
+        full_context += f"Context:\n{context}\n\nQ: {user_question}\nA:"
+
+        llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0)
+
+        response = llm.invoke(full_context)
+        answer = response.content
+
+        # Save in history
+        st.session_state.chat_history.append({
+            "question": user_question,
+            "answer": answer
+        })
+
+        # Show full conversation
+        for qa in reversed(st.session_state.chat_history):
+            with st.chat_message("user"):
+                st.markdown(qa["question"])
+            with st.chat_message("assistant"):
+                st.markdown(qa["answer"])

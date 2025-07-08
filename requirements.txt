@@ -1,8 +1,9 @@
 streamlit
-langchain
-langchain-community
-faiss-cpu
+langchain==0.3.26
+langchain-community==0.3.27
+langchain-core==0.3.68
+langchain-google-genai
 sentence-transformers
+faiss-cpu
+python-dotenv
 requests
-beautifulsoup4
-html2text

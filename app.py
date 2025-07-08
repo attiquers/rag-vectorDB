@@ -1,10 +1,11 @@
 import streamlit as st
 import requests
-from langchain.document_loaders import WebBaseLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
 import tempfile
+
+from langchain_community.document_loaders import WebBaseLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # ---------- UI CONFIG ----------
 st.set_page_config(page_title="Gemini-Powered RAG", layout="centered")
@@ -37,10 +38,17 @@ if submitted:
             splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
             chunks = splitter.split_documents(docs)
             embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
             with tempfile.TemporaryDirectory() as tmpdir:
                 vectorstore = FAISS.from_documents(chunks, embeddings)
                 vectorstore.save_local(tmpdir)
-                vectorstore = FAISS.load_local(tmpdir, embeddings)
+
+                # ✅ Fix for Streamlit Cloud deserialization
+                vectorstore = FAISS.load_local(
+                    tmpdir,
+                    embeddings,
+                    allow_dangerous_deserialization=True
+                )
                 retriever = vectorstore.as_retriever()
                 docs = retriever.get_relevant_documents(user_question)
                 context = "\n\n".join(doc.page_content for doc in docs[:2])
@@ -54,7 +62,7 @@ if submitted:
 
             try:
                 answer = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-            except:
+            except Exception:
                 answer = res.text or "❌ Gemini returned an error."
 
         # ---------- OUTPUT ----------

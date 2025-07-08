@@ -1,9 +1,24 @@
+# Core app and UI
 streamlit
+python-dotenv
+requests
+
+# LangChain ecosystem
 langchain==0.3.26
 langchain-community==0.3.27
 langchain-core==0.3.68
-langchain-google-genai
+langchain-google-genai==2.1.6
+langchain-text-splitters==0.3.8
+langsmith==0.4.4  # if you're using LangSmith tracing
+
+# Embeddings & Vector DB
 sentence-transformers
 faiss-cpu
-python-dotenv
-requests
+
+# Web loader (for WebBaseLoader)
+beautifulsoup4
+html2text
+
+# Optional but recommended
+tqdm           # for progress bars
+pandas         # helpful in debugging

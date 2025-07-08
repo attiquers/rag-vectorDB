@@ -66,7 +66,8 @@ if st.session_state.vectorstore:
             full_context += f"Q: {qa['question']}\nA: {qa['answer']}\n\n"
         full_context += f"Context:\n{context}\n\nQ: {user_question}\nA:"
 
-        llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0)
+        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+
 
         response = llm.invoke(full_context)
         answer = response.content

@@ -3,6 +3,9 @@ This Streamlit application provides a RAG Chatbot that can leverage both
 Google Gemini and OpenAI models for answering questions based on provided
 web URLs. Users can input API keys for both services, select their preferred
 model, and adjust the creativity (temperature) of the AI.
+
+This updated version also includes the full chat history in the context
+provided to the language model for more coherent conversations.
 """
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
@@ -89,15 +92,23 @@ if st.session_state.vectorstore:
     if user_question:
         retriever = st.session_state.vectorstore.as_retriever()
         docs = retriever.get_relevant_documents(user_question)
-        context = "\n\n".join(doc.page_content for doc in docs[:3])
+        document_context = "\n\n".join(doc.page_content for doc in docs[:3])
 
-        # Define strict context-only prompt
+        # Format chat history for inclusion in the prompt
+        history_for_prompt = ""
+        for qa in st.session_state.chat_history:
+            history_for_prompt += f"User: {qa['question']}\nAssistant: {qa['answer']}\n"
+        
+        # Define prompt template to include document context and chat history
         prompt_template = PromptTemplate.from_template("""
-You are an intelligent assistant. Use only the information from the provided context to answer the question.
-If the answer is not found in the context, reply with: "This information is not in the URLs pages provided."
+You are an intelligent assistant. Use only the information from the provided document context and chat history to answer the question.
+If the answer is not found in the context or history, reply with: "This information is not in the URLs pages provided or previous conversation."
 
-Context:
-{context}
+Document Context:
+{document_context}
+
+Chat History:
+{chat_history}
 
 Question:
 {question}
@@ -105,7 +116,11 @@ Question:
 Answer:""")
 
         # Fill in the template
-        prompt = prompt_template.format(context=context, question=user_question)
+        prompt = prompt_template.format(
+            document_context=document_context,
+            chat_history=history_for_prompt,
+            question=user_question
+        )
 
         # Initialize LLM based on user's choice and provided key
         llm = None

@@ -1,10 +1,8 @@
 """
-To address the user's request, I will modify the `app.py` file to:
-
-1.  **Add a creativity bar (slider) for temperature**: Implement a Streamlit slider that allows users to select a value from 0 to 100%. This value will then be converted to a 0.0-1.0 range for the `temperature` parameter in the `ChatGoogleGenerativeAI` model.
-2.  **Adjust URL input for new lines**: Change the `st.text_area` for URLs to split input by newlines instead of commas.
-
-Here's the updated `app.py` code:
+This Streamlit application provides a RAG Chatbot that can leverage both
+Google Gemini and OpenAI models for answering questions based on provided
+web URLs. Users can input API keys for both services, select their preferred
+model, and adjust the creativity (temperature) of the AI.
 """
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
@@ -12,6 +10,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI # Import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from dotenv import load_dotenv
 import tempfile
@@ -20,12 +19,28 @@ import os
 # Load environment variables
 load_dotenv()
 
-st.set_page_config(page_title="RAG Chatbot with Gemini", layout="wide")
-st.title("🧠 RAG Chatbot with Web URLs + Gemini")
+st.set_page_config(page_title="RAG Chatbot with Web URLs + Gemini/OpenAI", layout="wide")
+st.title("🧠 RAG Chatbot with Web URLs + Gemini/OpenAI")
 
-# Gemini API key input
+# API key inputs
 gemini_key = st.text_input("🔑 Enter Gemini API Key", type="password")
-os.environ["GOOGLE_API_KEY"] = gemini_key.strip()
+openai_key = st.text_input("🔑 Enter OpenAI API Key", type="password") # New OpenAI key input
+
+# Model selection
+model_choice = st.radio(
+    "🤖 Choose your AI Model",
+    ("Gemini", "OpenAI"),
+    index=0 # Default to Gemini
+)
+
+# Set API keys based on choice (only for initialization, actual usage will check if key is provided)
+if model_choice == "Gemini":
+    os.environ["GOOGLE_API_KEY"] = gemini_key.strip()
+    selected_model_name = "gemini-2.0-flash" # Default Gemini model
+else: # OpenAI
+    os.environ["OPENAI_API_KEY"] = openai_key.strip()
+    # gpt-4o-mini is one of the least expensive OpenAI models
+    selected_model_name = "gpt-4o-mini" 
 
 # Creativity bar for temperature
 creativity_percent = st.slider("✨ Creativity (Temperature)", 0, 100, 0)
@@ -92,20 +107,32 @@ Answer:""")
         # Fill in the template
         prompt = prompt_template.format(context=context, question=user_question)
 
-        # Use the temperature from session state
-        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=st.session_state.temperature)
-        response = llm.invoke(prompt)
-        answer = response.content.strip()
+        # Initialize LLM based on user's choice and provided key
+        llm = None
+        if model_choice == "Gemini":
+            if gemini_key:
+                llm = ChatGoogleGenerativeAI(model=selected_model_name, temperature=st.session_state.temperature)
+            else:
+                st.warning("Please enter your Gemini API Key to use Gemini models.")
+        elif model_choice == "OpenAI":
+            if openai_key:
+                llm = ChatOpenAI(model=selected_model_name, temperature=st.session_state.temperature)
+            else:
+                st.warning("Please enter your OpenAI API Key to use OpenAI models.")
+        
+        if llm:
+            response = llm.invoke(prompt)
+            answer = response.content.strip()
 
-        # Save the Q&A to history
-        st.session_state.chat_history.append({  # Corrected from st.session_session_state
-            "question": user_question,
-            "answer": answer
-        })
+            # Save the Q&A to history
+            st.session_state.chat_history.append({
+                "question": user_question,
+                "answer": answer
+            })
 
-        # Display chat history
-        for qa in reversed(st.session_state.chat_history):
-            with st.chat_message("user"):
-                st.markdown(qa["question"])
-            with st.chat_message("assistant"):
-                st.markdown(qa["answer"])
+            # Display chat history
+            for qa in reversed(st.session_state.chat_history):
+                with st.chat_message("user"):
+                    st.markdown(qa["question"])
+                with st.chat_message("assistant"):
+                    st.markdown(qa["answer"])

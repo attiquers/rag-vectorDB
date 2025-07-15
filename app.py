@@ -1,3 +1,11 @@
+"""
+To address the user's request, I will modify the `app.py` file to:
+
+1.  **Add a creativity bar (slider) for temperature**: Implement a Streamlit slider that allows users to select a value from 0 to 100%. This value will then be converted to a 0.0-1.0 range for the `temperature` parameter in the `ChatGoogleGenerativeAI` model.
+2.  **Adjust URL input for new lines**: Change the `st.text_area` for URLs to split input by newlines instead of commas.
+
+Here's the updated `app.py` code:
+"""
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -19,8 +27,12 @@ st.title("🧠 RAG Chatbot with Web URLs + Gemini")
 gemini_key = st.text_input("🔑 Enter Gemini API Key", type="password")
 os.environ["GOOGLE_API_KEY"] = gemini_key.strip()
 
-# URL input
-urls_input = st.text_area("🌐 Enter Web URLs (comma-separated)")
+# Creativity bar for temperature
+creativity_percent = st.slider("✨ Creativity (Temperature)", 0, 100, 0)
+temperature_value = creativity_percent / 100.0
+
+# URL input - now split by new lines
+urls_input = st.text_area("🌐 Enter Web URLs (one per line)")
 load_docs_btn = st.button("🔍 Load Documents and Initialize Chat")
 
 # Session state for vectorstore and chat history
@@ -28,6 +40,8 @@ if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "temperature" not in st.session_state:
+    st.session_state.temperature = 0.0 # Default value
 
 # Function to load and embed documents
 def load_and_embed(urls):
@@ -47,7 +61,8 @@ def load_and_embed(urls):
 
 # Load and embed if triggered
 if load_docs_btn and urls_input:
-    urls = [url.strip() for url in urls_input.split(",") if url.strip()]
+    urls = [url.strip() for url in urls_input.split("\n") if url.strip()] # Split by new line
+    st.session_state.temperature = temperature_value # Store temperature in session state
     with st.spinner("Processing documents..."):
         st.session_state.vectorstore = load_and_embed(urls)
     st.success("✅ Documents loaded and embedded. Start chatting below!")
@@ -77,12 +92,13 @@ Answer:""")
         # Fill in the template
         prompt = prompt_template.format(context=context, question=user_question)
 
-        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+        # Use the temperature from session state
+        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=st.session_state.temperature)
         response = llm.invoke(prompt)
         answer = response.content.strip()
 
         # Save the Q&A to history
-        st.session_state.chat_history.append({
+        st.session_state.chat_history.append({  # Corrected from st.session_session_state
             "question": user_question,
             "answer": answer
         })

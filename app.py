@@ -14,8 +14,9 @@ This updated version now implements a two-step process for answer generation:
    The creativity (temperature) control has been removed.
    User input is now submitted explicitly via a send button or Enter key.
    A loading icon is shown while the AI is thinking, replacing the answer area temporarily.
-   The chat history is now displayed below the chat input form in chronological order (oldest first).
-   Each message is contained in a distinct, colored bubble provided by Streamlit.
+   The chat history is now displayed below the chat input form.
+   Each user query and its AI response are grouped into a single, subtly bordered box,
+   with the most recent conversation turn displayed on top.
 """
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
@@ -66,9 +67,6 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # Ensure chat history has the correct structure for existing (possibly old) entries
-# This helps prevent KeyError if old session state is present from previous runs
-# A more robust solution for mixed types would involve clearing or full conversion.
-# For simplicity, if an old 'question'/'answer' entry is found, we convert it for the current run.
 cleaned_history = []
 for message in st.session_state.chat_history:
     if "question" in message and "answer" in message and "role" not in message:
@@ -118,7 +116,7 @@ if st.session_state.vectorstore:
             # Add user message to chat history immediately for display
             st.session_state.chat_history.append({"role": "user", "content": user_question})
 
-            # Display user message immediately in the chat area
+            # Display user message immediately in the chat area (inside its own bubble)
             with st.chat_message("user"):
                 st.markdown(user_question)
 
@@ -211,7 +209,40 @@ Refined Answer (or "This information is not in the URLs pages provided or previo
                 st.session_state.chat_history.append({"role": "assistant", "content": answer})
                 st.rerun() # Rerun to update the entire chat history and clear the form input
 
-    # Display chat messages from history AFTER the input form, in chronological order
-    for message in st.session_state.chat_history: # No longer reversed
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    st.subheader("Chat History")
+    # Group messages into turns and display in reverse chronological order
+    chat_turns = []
+    current_user_msg = None
+
+    for msg in st.session_state.chat_history:
+        if msg["role"] == "user":
+            # If there's an incomplete turn (user message without AI response), add it
+            if current_user_msg is not None:
+                chat_turns.append({"user": current_user_msg, "assistant": None})
+            current_user_msg = msg
+        elif msg["role"] == "assistant":
+            # If there's a preceding user message, complete the turn
+            if current_user_msg is not None:
+                chat_turns.append({"user": current_user_msg, "assistant": msg})
+                current_user_msg = None # Reset for next turn
+            else: # Handle case where an assistant message might appear without a user message (e.g., initial AI greeting)
+                # This scenario should be rare with the current logic, but included for robustness
+                chat_turns.append({"user": None, "assistant": msg})
+
+    # Add any trailing user message if the conversation ended with it
+    if current_user_msg is not None:
+        chat_turns.append({"user": current_user_msg, "assistant": None})
+
+    # Display chat turns, most recent on top
+    for turn in reversed(chat_turns):
+        st.markdown("---") # Visual separator between turns
+        with st.container(border=True): # This creates a subtle box with a border
+            if turn["user"]:
+                with st.chat_message("user"):
+                    st.markdown(turn["user"]["content"])
+            if turn["assistant"]:
+                with st.chat_message("assistant"):
+                    st.markdown(turn["assistant"]["content"])
+            elif turn["user"] and not turn["assistant"]: # If user asked, but AI hasn't responded yet
+                with st.chat_message("assistant"):
+                    st.markdown("*(AI is thinking...)*")

@@ -9,6 +9,8 @@ This updated version now implements a two-step process for answer generation:
 2. This initial answer is then re-evaluated by the LLM against the same context
    and history to check for relevance and refine it, ensuring no external
    knowledge is used, but allowing for creative synthesis within the provided information.
+   The relevance check in the second step is now more lenient, allowing for answers
+   that are 'vaguely similar' or 'at least 80% relevant' to the context.
 """
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
@@ -145,8 +147,11 @@ Answer:""")
             relevance_check_prompt_template = PromptTemplate.from_template("""
 You are a validator AI. Your task is to review an initial answer for a question, using only the provided document context and chat history.
 DO NOT use any external knowledge.
-If the initial answer is well-supported by the document context and chat history, or can be improved using *only* that information, provide the refined answer.
-If the initial answer is *not* sufficiently supported by the provided document context and chat history, or if the question cannot be answered from the provided information, state: "This information is not in the URLs pages provided or previous conversation."
+
+**Relevance Criteria:**
+- If the initial answer is directly supported by the document context and chat history, provide the refined answer.
+- If the initial answer is not directly present but is *at least 80% relevant* or vaguely similar to the information in the document context and chat history, you should still consider it relevant and provide the refined answer.
+- If the initial answer is genuinely not supported or cannot be inferred from the provided document context and chat history, then and *only then* should you state: "This information is not in the URLs pages provided or previous conversation."
 
 Document Context:
 {document_context}

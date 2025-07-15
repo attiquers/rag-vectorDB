@@ -13,6 +13,7 @@ This updated version now implements a two-step process for answer generation:
    that are 'vaguely similar' or 'at least 80% relevant' to the context.
    The creativity (temperature) control has been removed.
    User input is now submitted explicitly via a send button or Enter key.
+   A loading icon is shown while the AI is thinking, replacing the answer area temporarily.
 """
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
@@ -52,9 +53,6 @@ else: # OpenAI
     # gpt-4o-mini is one of the least expensive OpenAI models
     selected_model_name = "gpt-4o-mini" 
 
-# Removed creativity bar and temperature_value
-# We will hardcode temperature to 0.0 for deterministic answers
-
 # URL input - now split by new lines
 urls_input = st.text_area("🌐 Enter Web URLs (one per line)")
 load_docs_btn = st.button("🔍 Load Documents and Initialize Chat")
@@ -90,39 +88,51 @@ if load_docs_btn and urls_input:
 
 # Chatbot section
 if st.session_state.vectorstore:
+    # Display chat messages from history on app rerun
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
     # Use st.form for explicit submission
     with st.form("chat_form", clear_on_submit=True):
         user_question = st.text_input("💬 Ask a question", key="user_question_input")
-        submitted = st.form_submit_button("Send ✈️") # Plane icon button
+        submitted = st.form_submit_button("Send ✈️")
 
-        if submitted and user_question: # Process only on submission and if question is not empty
-            retriever = st.session_state.vectorstore.as_retriever()
-            docs = retriever.get_relevant_documents(user_question)
-            document_context = "\n\n".join(doc.page_content for doc in docs[:3])
+        if submitted and user_question:
+            # Prepare history for prompt *before* adding current user message to session state
+            prior_chat_history_for_prompt = ""
+            for msg in st.session_state.chat_history:
+                prior_chat_history_for_prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
 
-            # Format chat history for inclusion in the prompt
-            history_for_prompt = ""
-            for qa in st.session_state.chat_history:
-                history_for_prompt += f"User: {qa['question']}\nAssistant: {qa['answer']}\n"
-            
-            # Initialize LLM based on user's choice and provided key
-            llm = None
-            # Hardcode temperature to 0.0 for deterministic output
-            fixed_temperature = 0.0 
-            if model_choice == "Gemini":
-                if gemini_key:
-                    llm = ChatGoogleGenerativeAI(model=selected_model_name, temperature=fixed_temperature)
-                else:
-                    st.warning("Please enter your Gemini API Key to use Gemini models.")
-            elif model_choice == "OpenAI":
-                if openai_key:
-                    llm = ChatOpenAI(model=selected_model_name, temperature=fixed_temperature)
-                else:
-                    st.warning("Please enter your OpenAI API Key to use OpenAI models.")
-            
-            if llm:
-                # Step 1: Generate initial answer from context and history
-                initial_answer_prompt_template = PromptTemplate.from_template("""
+            # Add user message to chat history immediately (for display later)
+            st.session_state.chat_history.append({"role": "user", "content": user_question})
+
+            # Create a placeholder for the assistant's response (will contain spinner then actual answer)
+            with st.chat_message("assistant"):
+                message_placeholder = st.empty()
+                with message_placeholder.spinner("Thinking..."):
+                    retriever = st.session_state.vectorstore.as_retriever()
+                    docs = retriever.get_relevant_documents(user_question)
+                    document_context = "\n\n".join(doc.page_content for doc in docs[:3])
+                    
+                    llm = None
+                    fixed_temperature = 0.0 
+                    if model_choice == "Gemini":
+                        if gemini_key:
+                            llm = ChatGoogleGenerativeAI(model=selected_model_name, temperature=fixed_temperature)
+                        else:
+                            st.warning("Please enter your Gemini API Key to use Gemini models.")
+                            answer = "Please enter your Gemini API Key to use Gemini models." # Set answer to warning
+                    elif model_choice == "OpenAI":
+                        if openai_key:
+                            llm = ChatOpenAI(model=selected_model_name, temperature=fixed_temperature)
+                        else:
+                            st.warning("Please enter your OpenAI API Key to use OpenAI models.")
+                            answer = "Please enter your OpenAI API Key to use OpenAI models." # Set answer to warning
+                    
+                    if llm:
+                        # Step 1: Generate initial answer from context and history
+                        initial_answer_prompt_template = PromptTemplate.from_template("""
 You are an intelligent assistant. Based on the provided document context and chat history, answer the following question.
 Focus on providing a comprehensive answer using *only* the information available in the context and history.
 If the information is not present, you may state that, but try to infer or synthesize from what is given if possible.
@@ -137,17 +147,17 @@ Question:
 {question}
 
 Answer:""")
-                
-                initial_prompt = initial_answer_prompt_template.format(
-                    document_context=document_context,
-                    chat_history=history_for_prompt,
-                    question=user_question
-                )
-                initial_response = llm.invoke(initial_prompt)
-                initial_answer = initial_response.content.strip()
+                        
+                        initial_prompt = initial_answer_prompt_template.format(
+                            document_context=document_context,
+                            chat_history=prior_chat_history_for_prompt, # Use prior history
+                            question=user_question
+                        )
+                        initial_response = llm.invoke(initial_prompt)
+                        initial_answer = initial_response.content.strip()
 
-                # Step 2: Relevance check and refinement
-                relevance_check_prompt_template = PromptTemplate.from_template("""
+                        # Step 2: Relevance check and refinement
+                        relevance_check_prompt_template = PromptTemplate.from_template("""
 You are a validator AI. Your task is to review an initial answer for a question, using only the provided document context and chat history.
 DO NOT use any external knowledge.
 
@@ -170,24 +180,20 @@ Initial Answer to Validate:
 
 Refined Answer (or "This information is not in the URLs pages provided or previous conversation."):""")
 
-                final_prompt = relevance_check_prompt_template.format(
-                    document_context=document_context,
-                    chat_history=history_for_prompt,
-                    original_question=user_question,
-                    initial_answer=initial_answer
-                )
-                final_response = llm.invoke(final_prompt)
-                answer = final_response.content.strip()
+                        final_prompt = relevance_check_prompt_template.format(
+                            document_context=document_context,
+                            chat_history=prior_chat_history_for_prompt, # Use prior history
+                            original_question=user_question,
+                            initial_answer=initial_answer
+                        )
+                        final_response = llm.invoke(final_prompt)
+                        answer = final_response.content.strip()
+                    else:
+                        answer = "Please provide valid API keys." # Fallback if LLM not initialized
 
-                # Save the Q&A to history
-                st.session_state.chat_history.append({
-                    "question": user_question,
-                    "answer": answer
-                })
 
-    # Display chat history outside the form so it doesn't clear on submit
-    for qa in reversed(st.session_state.chat_history):
-        with st.chat_message("user"):
-            st.markdown(qa["question"])
-        with st.chat_message("assistant"):
-            st.markdown(qa["answer"])
+                # After processing, update the placeholder with the actual answer
+                message_placeholder.markdown(answer)
+                # Append the assistant's final message to chat history
+                st.session_state.chat_history.append({"role": "assistant", "content": answer})
+                st.rerun() # Rerun to update the entire chat history display

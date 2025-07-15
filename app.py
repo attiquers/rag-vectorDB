@@ -14,7 +14,7 @@ This updated version now implements a two-step process for answer generation:
    The creativity (temperature) control has been removed.
    User input is now submitted explicitly via a send button or Enter key.
    A loading icon is shown while the AI is thinking, replacing the answer area temporarily.
-   The chat history is now displayed below the chat input form.
+   The chat history is now displayed below the chat input form, with the most recent messages on top.
 """
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
@@ -210,8 +210,7 @@ Refined Answer (or "This information is not in the URLs pages provided or previo
                 st.session_state.chat_history.append({"role": "assistant", "content": answer})
                 st.rerun() # Rerun to update the entire chat history and clear the form input
 
-    # Display chat messages from history AFTER the input form
-    # This loop will ensure all previous and current messages are displayed correctly
-    for message in st.session_state.chat_history:
+    # Display chat messages from history AFTER the input form, with most recent on top
+    for message in reversed(st.session_state.chat_history):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])

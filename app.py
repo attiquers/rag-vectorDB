@@ -62,6 +62,13 @@ if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+# Ensure chat history has the correct structure for existing (possibly old) entries
+# This handles the KeyError 'role' if old session state is present from previous runs
+for i, message in enumerate(st.session_state.chat_history):
+    if "question" in message and "answer" in message:
+        st.session_state.chat_history[i] = {"role": "user", "content": message["question"]}
+        st.session_state.chat_history.insert(i + 1, {"role": "assistant", "content": message["answer"]})
+
 
 # Function to load and embed documents
 def load_and_embed(urls):
@@ -99,18 +106,18 @@ if st.session_state.vectorstore:
         submitted = st.form_submit_button("Send ✈️")
 
         if submitted and user_question:
-            # Prepare history for prompt *before* adding current user message to session state
+            # Build history for prompt from *existing* messages (prior turns)
             prior_chat_history_for_prompt = ""
             for msg in st.session_state.chat_history:
                 prior_chat_history_for_prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
 
-            # Add user message to chat history immediately (for display later)
-            st.session_state.chat_history.append({"role": "user", "content": user_question})
+            # Display user message immediately (will be added to session_state at rerun)
+            with st.chat_message("user"):
+                st.markdown(user_question)
 
-            # Create a placeholder for the assistant's response (will contain spinner then actual answer)
+            # Use st.status for showing thinking process and the response
             with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                with message_placeholder.spinner("Thinking..."):
+                with st.status("Thinking...", expanded=True) as status:
                     retriever = st.session_state.vectorstore.as_retriever()
                     docs = retriever.get_relevant_documents(user_question)
                     document_context = "\n\n".join(doc.page_content for doc in docs[:3])
@@ -121,14 +128,12 @@ if st.session_state.vectorstore:
                         if gemini_key:
                             llm = ChatGoogleGenerativeAI(model=selected_model_name, temperature=fixed_temperature)
                         else:
-                            st.warning("Please enter your Gemini API Key to use Gemini models.")
-                            answer = "Please enter your Gemini API Key to use Gemini models." # Set answer to warning
+                            answer = "Please enter your Gemini API Key to use Gemini models." # Fallback answer
                     elif model_choice == "OpenAI":
                         if openai_key:
                             llm = ChatOpenAI(model=selected_model_name, temperature=fixed_temperature)
                         else:
-                            st.warning("Please enter your OpenAI API Key to use OpenAI models.")
-                            answer = "Please enter your OpenAI API Key to use OpenAI models." # Set answer to warning
+                            answer = "Please enter your OpenAI API Key to use OpenAI models." # Fallback answer
                     
                     if llm:
                         # Step 1: Generate initial answer from context and history
@@ -190,10 +195,12 @@ Refined Answer (or "This information is not in the URLs pages provided or previo
                         answer = final_response.content.strip()
                     else:
                         answer = "Please provide valid API keys." # Fallback if LLM not initialized
-
-
-                # After processing, update the placeholder with the actual answer
-                message_placeholder.markdown(answer)
-                # Append the assistant's final message to chat history
+                    
+                    status.update(label="Response generated!", state="complete", expanded=False)
+                
+                st.markdown(answer) # Display the final answer after status complete
+                
+                # Append the user and assistant messages to chat history for next turn's display
+                st.session_state.chat_history.append({"role": "user", "content": user_question}) # This was already appended, but must be outside status context
                 st.session_state.chat_history.append({"role": "assistant", "content": answer})
-                st.rerun() # Rerun to update the entire chat history display
+                st.rerun() # Rerun to update the entire chat history and clear the form input

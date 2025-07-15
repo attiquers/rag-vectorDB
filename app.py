@@ -16,7 +16,7 @@ This updated version now implements a two-step process for answer generation:
    A loading icon is shown while the AI is thinking, replacing the answer area temporarily.
    The chat history is now displayed below the chat input form.
    Each user query and its AI response are grouped into a single, subtly bordered box,
-   with the most recent conversation turn displayed on top.
+   with the most recent conversation turn displayed on top, and without separator lines between turns.
 """
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
@@ -235,7 +235,6 @@ Refined Answer (or "This information is not in the URLs pages provided or previo
 
     # Display chat turns, most recent on top
     for turn in reversed(chat_turns):
-        st.markdown("---") # Visual separator between turns
         with st.container(border=True): # This creates a subtle box with a border
             if turn["user"]:
                 with st.chat_message("user"):

@@ -63,25 +63,20 @@ if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+
 # Ensure chat history has the correct structure for existing (possibly old) entries
-# This handles the KeyError 'role' if old session state is present from previous runs
-for i, message in enumerate(st.session_state.chat_history):
-    # Check if old format is present and convert if necessary
+# This helps prevent KeyError if old session state is present from previous runs
+# A more robust solution for mixed types would involve clearing or full conversion.
+# For simplicity, if an old 'question'/'answer' entry is found, we convert it for the current run.
+cleaned_history = []
+for message in st.session_state.chat_history:
     if "question" in message and "answer" in message and "role" not in message:
-        # Create a new list to reconstruct history
-        new_history_segment = [
-            {"role": "user", "content": message["question"]},
-            {"role": "assistant", "content": message["answer"]}
-        ]
-        # Replace the single old entry with two new entries.
-        # This modification requires careful handling if done mid-loop,
-        # so it's safer to reconstruct or ensure it's empty at the start.
-        # For simplicity, assuming a fresh start or advising cache clear.
-        # However, for robustness, a full re-initialization can be done if `st.session_state.chat_history` is found to be in the old format.
-        # For this example, we'll keep the basic check which might not fully convert all old entries on a single pass if they are mixed.
-        # A more robust conversion would iterate backwards or create a new list.
-        pass # The loop iterates, if an old entry is found, it will cause an error if not skipped.
-             # Better to clear history if it doesn't match the new expected structure.
+        cleaned_history.append({"role": "user", "content": message["question"]})
+        cleaned_history.append({"role": "assistant", "content": message["answer"]})
+    else:
+        cleaned_history.append(message)
+st.session_state.chat_history = cleaned_history
+
 
 # Function to load and embed documents
 def load_and_embed(urls):
@@ -119,7 +114,7 @@ if st.session_state.vectorstore:
             for msg in st.session_state.chat_history:
                 prior_chat_history_for_prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
 
-            # Add user message to chat history immediately (for display later)
+            # Add user message to chat history immediately for display
             st.session_state.chat_history.append({"role": "user", "content": user_question})
 
             # Display user message immediately in the chat area
@@ -216,12 +211,7 @@ Refined Answer (or "This information is not in the URLs pages provided or previo
                 st.rerun() # Rerun to update the entire chat history and clear the form input
 
     # Display chat messages from history AFTER the input form
-    # This loop will re-render the full history on every rerun
-    # (including the new user and assistant messages added in the form submission)
-    # The previous messages are already displayed due to the initial loop at the top.
-    # To prevent duplicate display, you'd typically clear the screen or manage history display carefully.
-    # Given Streamlit's rerender behavior, the top loop displays the *full* history including new entries
-    # after the st.rerun(). So, this redundant display loop here would duplicate.
-    # The current setup ensures new messages are immediately shown and then the full history is correct on rerun.
-    pass # This section is intentionally left empty as the display logic is handled above for new messages
-         # and the top loop will naturally re-render all messages on st.rerun().
+    # This loop will ensure all previous and current messages are displayed correctly
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])

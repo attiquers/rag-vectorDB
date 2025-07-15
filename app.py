@@ -4,8 +4,11 @@ Google Gemini and OpenAI models for answering questions based on provided
 web URLs. Users can input API keys for both services, select their preferred
 model, and adjust the creativity (temperature) of the AI.
 
-This updated version also includes the full chat history in the context
-provided to the language model for more coherent conversations.
+This updated version now implements a two-step process for answer generation:
+1. An initial answer is generated from the document context and chat history.
+2. This initial answer is then re-evaluated by the LLM against the same context
+   and history to check for relevance and refine it, ensuring no external
+   knowledge is used, but allowing for creative synthesis within the provided information.
 """
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
@@ -99,29 +102,6 @@ if st.session_state.vectorstore:
         for qa in st.session_state.chat_history:
             history_for_prompt += f"User: {qa['question']}\nAssistant: {qa['answer']}\n"
         
-        # Define prompt template to include document context and chat history
-        prompt_template = PromptTemplate.from_template("""
-You are an intelligent assistant. Use only the information from the provided document context and chat history to answer the question.
-If the answer is not found in the context or history, reply with: "This information is not in the URLs pages provided or previous conversation."
-
-Document Context:
-{document_context}
-
-Chat History:
-{chat_history}
-
-Question:
-{question}
-
-Answer:""")
-
-        # Fill in the template
-        prompt = prompt_template.format(
-            document_context=document_context,
-            chat_history=history_for_prompt,
-            question=user_question
-        )
-
         # Initialize LLM based on user's choice and provided key
         llm = None
         if model_choice == "Gemini":
@@ -136,8 +116,60 @@ Answer:""")
                 st.warning("Please enter your OpenAI API Key to use OpenAI models.")
         
         if llm:
-            response = llm.invoke(prompt)
-            answer = response.content.strip()
+            # Step 1: Generate initial answer from context and history
+            initial_answer_prompt_template = PromptTemplate.from_template("""
+You are an intelligent assistant. Based on the provided document context and chat history, answer the following question.
+Focus on providing a comprehensive answer using *only* the information available in the context and history.
+If the information is not present, you may state that, but try to infer or synthesize from what is given if possible.
+
+Document Context:
+{document_context}
+
+Chat History:
+{chat_history}
+
+Question:
+{question}
+
+Answer:""")
+            
+            initial_prompt = initial_answer_prompt_template.format(
+                document_context=document_context,
+                chat_history=history_for_prompt,
+                question=user_question
+            )
+            initial_response = llm.invoke(initial_prompt)
+            initial_answer = initial_response.content.strip()
+
+            # Step 2: Relevance check and refinement
+            relevance_check_prompt_template = PromptTemplate.from_template("""
+You are a validator AI. Your task is to review an initial answer for a question, using only the provided document context and chat history.
+DO NOT use any external knowledge.
+If the initial answer is well-supported by the document context and chat history, or can be improved using *only* that information, provide the refined answer.
+If the initial answer is *not* sufficiently supported by the provided document context and chat history, or if the question cannot be answered from the provided information, state: "This information is not in the URLs pages provided or previous conversation."
+
+Document Context:
+{document_context}
+
+Chat History:
+{chat_history}
+
+Original Question:
+{original_question}
+
+Initial Answer to Validate:
+{initial_answer}
+
+Refined Answer (or "This information is not in the URLs pages provided or previous conversation."):""")
+
+            final_prompt = relevance_check_prompt_template.format(
+                document_context=document_context,
+                chat_history=history_for_prompt,
+                original_question=user_question,
+                initial_answer=initial_answer
+            )
+            final_response = llm.invoke(final_prompt)
+            answer = final_response.content.strip()
 
             # Save the Q&A to history
             st.session_state.chat_history.append({

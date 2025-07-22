@@ -1,23 +1,4 @@
-"""
-This Streamlit application provides a RAG Chatbot that can leverage both
-Google Gemini and OpenAI models for answering questions based on provided
-web URLs. Users can input API keys for both services and select their preferred
-model.
 
-This updated version now implements a two-step process for answer generation:
-1. An initial answer is generated from the document context and chat history.
-2. This initial answer is then re-evaluated by the LLM against the same context
-   and history to check for relevance and refine it, ensuring no external
-   knowledge is used, but allowing for creative synthesis within the provided information.
-   The relevance check in the second step is now more lenient, allowing for answers
-   that are 'vaguely similar' or 'at least 80% relevant' to the context.
-   The creativity (temperature) control has been removed.
-   User input is now submitted explicitly via a send button or Enter key.
-   A loading icon is shown while the AI is thinking, replacing the answer area temporarily.
-   The chat history is now displayed below the chat input form.
-   Each user query and its AI response are grouped into a single, subtly bordered box,
-   with the most recent conversation turn displayed on top, and without separator lines between turns.
-"""
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
